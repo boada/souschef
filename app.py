@@ -8,6 +8,9 @@ import shopping_list
 
 app = Flask(__name__)
 
+# Initialize database on app startup
+models.init_db()
+
 
 @app.route('/')
 def index():
@@ -142,8 +145,5 @@ def api_recipes():
 
 
 if __name__ == '__main__':
-    # Initialize database on first run
-    models.init_db()
-    
-    # Run the app
+    # Run the app (dev server only - use gunicorn for production)
     app.run(debug=True, port=5000)
