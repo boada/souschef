@@ -5,9 +5,10 @@ import sqlite3
 import json
 from datetime import datetime
 from typing import List, Dict, Optional, Tuple
+import os
 
 
-DATABASE_NAME = 'database.db'
+DATABASE_NAME = os.environ.get('DATABASE_PATH', 'database.db')
 
 
 def get_db_connection():
