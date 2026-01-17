@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+
+{% block title %}Shopping List - souschef.ai{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h2>Shopping List</h2>
+    <div>
+        <button onclick="window.print()" class="btn btn-small">🖨️ Print</button>
+        <a href="/shopping-list" class="btn btn-small">← Back</a>
+    </div>
+</div>
+
+<div class="shopping-list-info">
+    <h3>Recipes:</h3>
+    <ul>
+        {% for recipe in recipes %}
+        <li>{{ recipe.title }}</li>
+        {% endfor %}
+    </ul>
+</div>
+
+<div class="shopping-list">
+    {% for category, items in shopping_list.items() %}
+    <section class="shopping-category">
+        <h3>{{ category|title }}</h3>
+        <ul class="shopping-items">
+            {% for item in items %}
+            <li>
+                <label class="shopping-item">
+                    <input type="checkbox">
+                    <div class="item-content">
+                        <strong>
+                            {% if item.quantity %}
+                                {{ item.quantity }} {% if item.unit %}{{ item.unit }}{% endif %}
+                            {% endif %}
+                            {{ item.name }}
+                        </strong>
+                        <div class="item-recipes">
+                            <small>for: {{ item.recipes|join(', ') }}</small>
+                        </div>
+                    </div>
+                </label>
+            </li>
+            {% endfor %}
+        </ul>
+    </section>
+    {% endfor %}
+</div>
+
+{% if not shopping_list %}
+<div class="empty-state">
+    <p>No items to show</p>
+</div>
+{% endif %}
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Save checkbox state to localStorage
+const checkboxes = document.querySelectorAll('.shopping-item input[type="checkbox"]');
+checkboxes.forEach((checkbox, index) => {
+    const key = `shopping_item_${index}`;
+    
+    // Load saved state
+    if (localStorage.getItem(key) === 'true') {
+        checkbox.checked = true;
+    }
+    
+    // Save state on change
+    checkbox.addEventListener('change', () => {
+        localStorage.setItem(key, checkbox.checked);
+    });
+});
+
+// Clear storage when leaving page (except print)
+window.addEventListener('beforeunload', (e) => {
+    if (!e.target.activeElement || e.target.activeElement.tagName !== 'BUTTON') {
+        checkboxes.forEach((_, index) => {
+            localStorage.removeItem(`shopping_item_${index}`);
+        });
+    }
+});
+</script>
+{% endblock %}

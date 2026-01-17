@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+
+{% block title %}Recipe Library - souschef.ai{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h2>My Recipe Library</h2>
+    <a href="/add-recipe" class="btn btn-primary">+ Add Recipe</a>
+</div>
+
+{% if recipes %}
+<div class="recipe-grid">
+    {% for recipe in recipes %}
+    <div class="recipe-card">
+        {% if recipe.image_url %}
+        <img src="{{ recipe.image_url }}" alt="{{ recipe.title }}" class="recipe-image">
+        {% else %}
+        <div class="recipe-image-placeholder">🍳</div>
+        {% endif %}
+        
+        <div class="recipe-card-content">
+            <h3><a href="/recipe/{{ recipe.id }}">{{ recipe.title }}</a></h3>
+            
+            <div class="recipe-meta">
+                {% if recipe.servings %}
+                <span>🍽️ {{ recipe.servings }} servings</span>
+                {% endif %}
+                {% if recipe.total_time %}
+                <span>⏱️ {{ recipe.total_time }} min</span>
+                {% endif %}
+            </div>
+            
+            <div class="recipe-source">
+                <small>from {{ recipe.source_website }}</small>
+            </div>
+            
+            <div class="recipe-actions">
+                <a href="/recipe/{{ recipe.id }}" class="btn btn-small">View</a>
+                <button onclick="deleteRecipe({{ recipe.id }}, '{{ recipe.title }}')" 
+                        class="btn btn-small btn-danger">Delete</button>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<div class="empty-state">
+    <p>📭 No recipes yet!</p>
+    <p>Start by <a href="/add-recipe">adding a recipe from a URL</a></p>
+</div>
+{% endif %}
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+function deleteRecipe(recipeId, title) {
+    if (!confirm(`Delete "${title}"?`)) {
+        return;
+    }
+    
+    fetch(`/recipe/${recipeId}/delete`, {
+        method: 'POST'
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            location.reload();
+        } else {
+            alert('Error deleting recipe: ' + (data.error || 'Unknown error'));
+        }
+    })
+    .catch(error => {
+        alert('Error: ' + error);
+    });
+}
+</script>
+{% endblock %}

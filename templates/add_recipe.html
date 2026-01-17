@@ -1,0 +1,207 @@
+{% extends "base.html" %}
+
+{% block title %}Add Recipe - souschef.ai{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h2>Add New Recipe</h2>
+</div>
+
+<div class="form-container">
+    <form id="add-recipe-form" onsubmit="addRecipe(event)">
+        <div class="form-group">
+            <label for="url">Recipe URL</label>
+            <input type="url" 
+                   id="url" 
+                   name="url" 
+                   placeholder="https://www.example.com/recipe" 
+                   required>
+            <small>Paste a URL from any recipe website (AllRecipes, NYT Cooking, Serious Eats, etc.)</small>
+        </div>
+        
+        <button type="submit" class="btn btn-primary" id="submit-btn">
+            Add Recipe
+        </button>
+    </form>
+    
+    <div id="message" class="message" style="display: none;"></div>
+</div>
+
+<div class="info-box">
+    <h3>Supported Sites</h3>
+    <p>This app supports 100+ recipe websites including:</p>
+    <ul>
+        <li>AllRecipes</li>
+        <li>NYT Cooking</li>
+        <li>Serious Eats</li>
+        <li>Food Network</li>
+        <li>Bon Appétit</li>
+        <li>And many more!</li>
+    </ul>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+let scrapedRecipe = null;
+
+function addRecipe(event) {
+    event.preventDefault();
+    
+    const form = document.getElementById('add-recipe-form');
+    const submitBtn = document.getElementById('submit-btn');
+    const messageDiv = document.getElementById('message');
+    const formData = new FormData(form);
+    
+    // Show loading state
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Scraping...';
+    messageDiv.style.display = 'none';
+    
+    fetch('/add-recipe', {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            scrapedRecipe = data.recipe;
+            showReviewPage();
+        } else {
+            throw new Error(data.error || 'Unknown error');
+        }
+    })
+    .catch(error => {
+        messageDiv.className = 'message error';
+        messageDiv.textContent = '✗ ' + error.message;
+        messageDiv.style.display = 'block';
+        
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Add Recipe';
+    });
+}
+
+function showReviewPage() {
+    // Hide the form
+    document.querySelector('.form-container').style.display = 'none';
+    document.querySelector('.info-box').style.display = 'none';
+    
+    // Create and show review interface
+    const reviewContainer = document.createElement('div');
+    reviewContainer.className = 'review-container';
+    reviewContainer.innerHTML = `
+        <h2>Review Recipe</h2>
+        <p class="review-instructions">Review the parsed ingredients below. You can edit any field before saving.</p>
+        
+        <div class="review-header">
+            <div>
+                <h3>${scrapedRecipe.title}</h3>
+                <p>${scrapedRecipe.source_website}</p>
+            </div>
+        </div>
+        
+        <div class="review-sections">
+            <div class="review-section">
+                <h4>Ingredients</h4>
+                <div class="ingredients-review">
+                    ${scrapedRecipe.ingredients.map((ing, idx) => `
+                        <div class="ingredient-row">
+                            <div class="ingredient-fields">
+                                <div class="field-group">
+                                    <label>Original</label>
+                                    <div class="original-text">${ing.raw_text}</div>
+                                </div>
+                                <div class="field-group">
+                                    <label>Quantity</label>
+                                    <input type="number" step="0.01" value="${ing.quantity || ''}" 
+                                           data-idx="${idx}" data-field="quantity" class="edit-field">
+                                </div>
+                                <div class="field-group">
+                                    <label>Unit</label>
+                                    <input type="text" value="${ing.unit || ''}" 
+                                           data-idx="${idx}" data-field="unit" class="edit-field">
+                                </div>
+                                <div class="field-group field-name">
+                                    <label>Ingredient Name</label>
+                                    <input type="text" value="${ing.name || ''}" 
+                                           data-idx="${idx}" data-field="name" class="edit-field">
+                                </div>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+        </div>
+        
+        <div class="review-actions">
+            <button onclick="saveRecipe()" class="btn btn-primary" id="save-btn">Accept & Save Recipe</button>
+            <button onclick="cancelReview()" class="btn">Cancel</button>
+        </div>
+        
+        <div id="save-message" class="message" style="display: none;"></div>
+    `;
+    
+    document.querySelector('.container').appendChild(reviewContainer);
+    
+    // Add event listeners to update the recipe data
+    document.querySelectorAll('.edit-field').forEach(input => {
+        input.addEventListener('change', (e) => {
+            const idx = parseInt(e.target.dataset.idx);
+            const field = e.target.dataset.field;
+            let value = e.target.value;
+            
+            if (field === 'quantity' && value) {
+                value = parseFloat(value);
+            }
+            
+            scrapedRecipe.ingredients[idx][field] = value;
+        });
+    });
+}
+
+function saveRecipe() {
+    const saveBtn = document.getElementById('save-btn');
+    const messageDiv = document.getElementById('save-message');
+    
+    saveBtn.disabled = true;
+    saveBtn.textContent = 'Saving...';
+    messageDiv.style.display = 'none';
+    
+    fetch('/review-recipe', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(scrapedRecipe)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            messageDiv.className = 'message success';
+            messageDiv.textContent = `✓ Saved "${data.title}" successfully!`;
+            messageDiv.style.display = 'block';
+            
+            // Redirect after 1 second
+            setTimeout(() => {
+                window.location.href = `/recipe/${data.recipe_id}`;
+            }, 1000);
+        } else {
+            throw new Error(data.error || 'Unknown error');
+        }
+    })
+    .catch(error => {
+        messageDiv.className = 'message error';
+        messageDiv.textContent = '✗ ' + error.message;
+        messageDiv.style.display = 'block';
+        
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'Accept & Save Recipe';
+    });
+}
+
+function cancelReview() {
+    location.reload();
+}
+</script>
+{% endblock %}

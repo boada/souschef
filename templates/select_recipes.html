@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+
+{% block title %}Select Recipes - souschef.ai{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h2>Select Recipes for Shopping List</h2>
+</div>
+
+{% if recipes %}
+<form method="POST" action="/shopping-list">
+    <div class="recipe-selection">
+        {% for recipe in recipes %}
+        <label class="recipe-checkbox">
+            <input type="checkbox" name="recipe_ids" value="{{ recipe.id }}">
+            <div class="recipe-checkbox-content">
+                {% if recipe.image_url %}
+                <img src="{{ recipe.image_url }}" alt="{{ recipe.title }}" class="recipe-thumb">
+                {% else %}
+                <div class="recipe-thumb-placeholder">🍳</div>
+                {% endif %}
+                <div>
+                    <strong>{{ recipe.title }}</strong>
+                    <div class="recipe-meta-small">
+                        {% if recipe.servings %}
+                        <span>{{ recipe.servings }} servings</span>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </label>
+        {% endfor %}
+    </div>
+    
+    <div class="form-actions">
+        <button type="submit" class="btn btn-primary">Generate Shopping List</button>
+        <a href="/" class="btn">Cancel</a>
+    </div>
+</form>
+{% else %}
+<div class="empty-state">
+    <p>📭 No recipes yet!</p>
+    <p>Start by <a href="/add-recipe">adding a recipe from a URL</a></p>
+</div>
+{% endif %}
+
+{% endblock %}

@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+
+{% block title %}{{ recipe.title }} - souschef.ai{% endblock %}
+
+{% block content %}
+<div class="recipe-detail">
+    <div class="recipe-header">
+        <h2>{{ recipe.title }}</h2>
+        <div class="recipe-actions">
+            <a href="/" class="btn btn-small">← Back</a>
+            <button onclick="deleteRecipe({{ recipe.id }}, '{{ recipe.title }}')" 
+                    class="btn btn-small btn-danger">Delete</button>
+        </div>
+    </div>
+    
+    {% if recipe.image_url %}
+    <img src="{{ recipe.image_url }}" alt="{{ recipe.title }}" class="recipe-detail-image">
+    {% endif %}
+    
+    <div class="recipe-info">
+        <div class="info-item">
+            <strong>Source:</strong> 
+            <a href="{{ recipe.url }}" target="_blank">{{ recipe.source_website }}</a>
+        </div>
+        {% if recipe.servings %}
+        <div class="info-item">
+            <strong>Servings:</strong> {{ recipe.servings }}
+        </div>
+        {% endif %}
+        {% if recipe.total_time %}
+        <div class="info-item">
+            <strong>Total Time:</strong> {{ recipe.total_time }} minutes
+        </div>
+        {% endif %}
+    </div>
+    
+    <div class="recipe-sections">
+        <section class="ingredients-section">
+            <h3>Ingredients</h3>
+            <ul class="ingredients-list">
+                {% for ingredient in recipe.ingredients %}
+                <li>{{ ingredient.raw_text }}</li>
+                {% endfor %}
+            </ul>
+        </section>
+        
+        <section class="instructions-section">
+            <h3>Instructions</h3>
+            <ol class="instructions-list">
+                {% for instruction in recipe.instructions %}
+                <li>{{ instruction }}</li>
+                {% endfor %}
+            </ol>
+        </section>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function deleteRecipe(recipeId, title) {
+    if (!confirm(`Delete "${title}"?`)) {
+        return;
+    }
+    
+    fetch(`/recipe/${recipeId}/delete`, {
+        method: 'POST'
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            window.location.href = '/';
+        } else {
+            alert('Error deleting recipe: ' + (data.error || 'Unknown error'));
+        }
+    })
+    .catch(error => {
+        alert('Error: ' + error);
+    });
+}
+</script>
+{% endblock %}
