@@ -5,6 +5,7 @@ from typing import List, Dict
 from collections import defaultdict
 import re
 import math
+from llm_parser import get_parser
 
 # Toggle debug printing
 DEBUG = True
@@ -105,7 +106,11 @@ def generate_shopping_list(recipes: List[Dict]) -> Dict:
         
         for ingredient in recipe['ingredients']:
             original_name = ingredient['name']
-            name = _normalize_ingredient_name(original_name)
+            modifiers = ingredient.get('modifiers')
+            
+            # Use LLM-based normalization (with fallback to regex)
+            parser = get_parser()
+            name = parser.normalize_ingredient_name(original_name, modifiers)
             
             # Skip if normalization resulted in empty string
             if not name or name.strip() == '':
@@ -214,16 +219,17 @@ def _normalize_ingredient_name(name: str) -> str:
         name = name.replace(word, '').strip()
     
     # Remove common modifiers to combine similar ingredients
-    # (e.g., "all purpose flour" and "bread flour" both become "flour")
-    # Note: Be careful - some modifiers change the ingredient fundamentally
-    # (e.g., red onion vs yellow onion, brown sugar vs white sugar)
-    # Use word boundaries to avoid partial matches (e.g., "table" shouldn't match in "tablespoons")
+    # NOTE: Some modifiers are KEPT because they change the ingredient:
+    #   - Flour types (bread/cake/AP are different)
+    #   - Sugar types (brown vs white)
+    #   - Onion colors (red vs yellow)
+    # Use word boundaries to avoid partial matches
     modifiers = [
-        # Flour types - most home cooks use all-purpose for everything
-        (r'\ball[\s-]?purpose\b', ''),
-        (r'\bbread\b', ''),
-        (r'\bcake\b', ''),
-        (r'\bwhole[\s-]?wheat\b', ''),
+        # Flour types - REMOVED, these are actually different ingredients
+        # (r'\ball[\s-]?purpose\b', ''),  # Keep
+        # (r'\bbread\b', ''),  # Keep
+        # (r'\bcake\b', ''),  # Keep
+        # (r'\bwhole[\s-]?wheat\b', ''),  # Keep
         # Oil/fat modifiers that are generally substitutable
         (r'\bextra[\s-]?virgin\b', ''),
         (r'\bvirgin\b', ''),

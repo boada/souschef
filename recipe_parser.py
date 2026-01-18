@@ -4,6 +4,7 @@ Recipe parsing using recipe-scrapers library
 from recipe_scrapers import scrape_me
 from typing import Dict, List, Optional
 import re
+from llm_parser import get_parser
 
 
 def parse_recipe_url(url: str) -> Dict:
@@ -29,7 +30,10 @@ def parse_recipe_url(url: str) -> Dict:
         
         # Get ingredients (raw text for now, will parse in shopping list)
         raw_ingredients = scraper.ingredients()
-        ingredients = [parse_ingredient(ing) for ing in raw_ingredients]
+        
+        # Parse ingredients with LLM (or fallback to regex)
+        parser = get_parser()
+        ingredients = [parser.parse_ingredient(ing) for ing in raw_ingredients]
         
         # Get instructions
         instructions_raw = scraper.instructions()
@@ -51,12 +55,13 @@ def parse_recipe_url(url: str) -> Dict:
 
 def parse_ingredient(raw_text: str) -> Dict:
     """
-    Parse an ingredient string into structured data
+    LEGACY: Parse an ingredient string into structured data using regex
+    
+    This function is kept for backward compatibility and as a fallback.
+    New code should use llm_parser.get_parser().parse_ingredient() instead.
     
     Example: "2 cups chopped onions" -> 
              {quantity: 2, unit: "cups", name: "onions", preparation: "chopped"}
-    
-    This is a simplified parser. v2 will have more sophisticated parsing.
     """
     raw_text = raw_text.strip()
     

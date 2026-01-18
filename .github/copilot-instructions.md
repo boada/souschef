@@ -3,44 +3,60 @@
 ## Project Context
 souschef.ai is an AI-powered, local-first meal planning platform that generates hyper-optimized shopping lists from recipes. The long-term goal is to provide batch cooking intelligence (e.g., "make extra rice for tomorrow's recipe" or "chop all onions now for 3 recipes").
 
-**Current Phase**: v1 MVP is ~90% complete - Core functionality working, refinement in progress
+**Current Phase**: v2.0 IN PROGRESS - LLM-based ingredient parsing
 
-## Latest Session Notes (Jan 16, 2026)
+## Latest Session Notes (Jan 17, 2026)
+**Major Architecture Change: LLM Integration (with lessons learned)**
+- Created `llm_parser.py` abstraction layer ✓
+- Supports Ollama (local), OpenAI, Anthropic, or regex fallback ✓
+- Tested with Qwen2.5 1.5B (~1GB RAM, better than 0.5B) ✓
+- Auto-detects available backends and falls back gracefully ✓
+- **LLM works but too slow for production** - 3-4 minutes per recipe ⚠️
+- **Currently using regex backend** for speed (instant vs minutes) ✓
+
+**Performance Issue Identified:**
+- Sequential LLM calls: 15 ingredients × 15 seconds = 3.5 minutes
+- Need batch processing: parse all ingredients in one LLM call
+- OR keep using regex (fast, good enough for v2)
+- LLM infrastructure ready for future optimization
+
 **What's Working:**
-- Recipe scraping with `recipe-scrapers` library ✅
-- SQLite database with recipes, ingredients, instructions ✅
-- Shopping list generation with quantity aggregation ✅
-- Ingredient normalization (strips modifiers like "all-purpose", "bread", etc.) ✅
-- Unit conversions (cups ↔ ounces for flour, sugar, butter) ✅
-- Always rounds up quantities (never run short) ✅
-- Debug output (DEBUG flag in shopping_list.py) ✅
+- Recipe scraping with `recipe-scrapers` library ✓
+- SQLite database with recipes, ingredients, instructions ✓
+- Shopping list generation with quantity aggregation ✓
+- Regex-based ingredient parsing (quantity, unit, name, modifiers) ✓
+- Ingredient normalization with smart modifier handling ✓
+- Unit conversions (cups ↔ ounces for flour, sugar, butter) ✓
+- Always rounds up quantities (never run short) ✓
+- Debug output (DEBUG flag in shopping_list.py) ✓
+- Recipe review/edit page after scraping ✓
+- Production deployment with Docker + Gunicorn ✓
+- Running on home server (3.7GB RAM Debian) ✓
+- **Fixed delete button bug** (quote escaping issue) ✓
 
-**Current Issue:**
-Ingredient parsing from recipe sites is imperfect. Examples:
-- "plus 2 tablespoons granulated sugar" - includes extra words
-- "(1 stick) cold unsalted butter, cut into 1/4-inch pats" - messy text
-- Different butters not combining (tablespoons vs cups)
+**Important Design Decisions:**
+- Flour types (bread, cake, all-purpose) now stay SEPARATE (not combined)
+- They are actually different ingredients, not interchangeable
+- Same applies to brown sugar vs white sugar, red onion vs yellow onion
 
-**What We Just Built (needs review):**
-Added recipe review/edit page after scraping:
-1. User pastes URL
-2. Recipe is scraped and parsed
-3. NEW: Review page shows each ingredient with editable fields (quantity, unit, name)
-4. User can fix parsing errors before saving
-5. Click "Accept & Save" to add to database
+**Deployment:**
+- Docker containerized with gunicorn WSGI server
+- 2 workers, 4 threads each (handles 8 concurrent requests)
+- Persistent SQLite volume in `./data/`
+- Health checks and auto-restart
+- Accessible on home network at port 8000
+- Uses `docker-compose` (older version with hyphen, not `docker compose`)
+- **LLM backend set to regex** (can change to ollama when optimized)
 
-Files modified:
-- `app.py`: Split `/add-recipe` into scrape + new `/review-recipe` endpoint
-- `templates/add_recipe.html`: Added JS for review interface
-- `static/style.css`: Added `.review-container` styles
+**Known Issues:**
+- LLM is too slow without batch processing (3-4 min per recipe)
+- Home server RAM is tight (3.7GB total) - limits model choice
+- `recipe-scrapers` doesn't support all recipe sites (expected limitation)
 
-**User's concern**: Not sure if they like the editing form yet - needs testing with spouse
-
-**Next Steps:**
-- Test the review/edit UI with real recipes
-- Decide if manual editing approach is better than improving auto-parsing
-- May need to simplify the edit interface
-- Consider: should we show normalized names in review to help user understand what will combine?
+**Style Guide:**
+- We're Series A funded now - keep emoji usage tasteful and minimal
+- Use when appropriate for emphasis, but don't overdo it
+- Professional but approachable tone
 
 ## Architecture
 
@@ -48,20 +64,26 @@ Files modified:
 - **Backend**: Flask (Python 3.10+)
 - **Database**: SQLite with structured schema
 - **Recipe Parsing**: `recipe-scrapers` library
+- **Ingredient Intelligence**: Lightweight LLMs (Ollama + Qwen2.5 0.5B) with regex fallback
 - **Frontend**: HTML + vanilla JavaScript (htmx for interactivity)
-- **Deployment**: Local development server only
+- **Deployment**: Docker + Gunicorn on home server (Debian)
 
 ### Project Structure
 ```
-dinner_planner/
+souschef/
 ├── app.py                 # Flask application entry point
 ├── models.py              # SQLite models and database logic
-├── recipe_parser.py       # recipe-scrapers integration
-├── shopping_list.py       # Shopping list generation logic
+├── recipe_parser.py       # recipe-scrapers integration + LLM parsing
+├── llm_parser.py          # LLM abstraction layer (NEW v2)
+├── shopping_list.py       # Shopping list generation with LLM normalization
 ├── templates/             # HTML templates
 ├── static/                # CSS, JS, images
-├── database.db            # SQLite database (gitignored)
-└── requirements.txt       # Python dependencies
+├── data/                  # Persistent data (SQLite, gitignored)
+├── requirements.txt       # Python dependencies
+├── Dockerfile             # Docker build config
+├── docker-compose.yml     # Docker orchestration
+└── .github/
+    └── copilot-instructions.md  # This file
 ```
 
 ## Coding Guidelines
@@ -81,9 +103,10 @@ dinner_planner/
 
 ### Recipe Parsing
 - Use `recipe-scrapers` library for URL parsing
-- Handle parsing failures gracefully
+- **Use LLM for ingredient parsing** (via `llm_parser.py`)
+- Handle parsing failures gracefully (LLM auto-falls back to regex)
 - Store raw scraped data for debugging
-- Normalize ingredient text for better matching
+- LLM provides semantic normalization (understands "all-purpose flour" = "flour")
 
 ### Frontend
 - Keep it simple and functional (not fancy)
@@ -103,27 +126,34 @@ dinner_planner/
 - Recipe review/edit page (NEW - needs user testing)
 - Debug logging for shopping list generation
 - Simple, clean UI
+- **Docker deployment to home server**
+- **Production-ready with Gunicorn**
 
-### IN PROGRESS 🔄
-- Ingredient normalization refinement (lots of edge cases)
-- Recipe review UI polish
+### v2 IN PROGRESS 🔄
+- **LLM infrastructure built** (architecture complete, but too slow) ✓
+- **Currently using regex** for speed (instant vs 3-4 minutes) ✓
+- Flexible backend system (Ollama/OpenAI/Anthropic/regex) ✓
+- Need to implement batch LLM processing for performance ⚠️
+- Ingredient normalization preserves important modifiers (flour types) ✓
 
 ### KNOWN ISSUES ⚠️
-- Ingredient name parsing captures too much text (e.g., includes cooking notes)
-- Some ingredients don't combine when they should (butter in different units)
+- LLM without batching: 3-4 minutes per recipe (unacceptable)
+- Sequential API calls are the bottleneck (15 calls × 15 sec each)
+- Need batch processing: parse all ingredients in one LLM call
+- Home server RAM is tight (using qwen2.5:1.5b - 1GB model)
 - `recipe-scrapers` doesn't support all recipe sites (expected limitation)
-- Normalization is aggressive and sometimes strips needed words
+- Delete button had quote escaping bug (FIXED) ✓
 
 ### OUT OF SCOPE (Future versions)
-- Batch prep suggestions (v2)
-- Recipe ordering/timeline (v2)
-- Manual recipe entry (v4)
-- Recipe scaling (v4)
-- Pantry inventory (v4)
-- User accounts (v4+)
-- Recipe editing after save (v4)
-- Advanced ingredient parsing with NLP (v2)
-- Leftover tracking (v4)
+- Batch prep suggestions (v3)
+- Recipe ordering/timeline (v3)
+- "Make dinner for me" automation (v4)
+- Manual recipe entry (v5+)
+- Recipe scaling (v5+)
+- Pantry inventory (v5+)
+- User accounts (v5+)
+- Recipe editing after save (v5+)
+- Leftover tracking (v5+)
 
 ## Key Features to Remember
 
@@ -169,8 +199,11 @@ with sqlite3.connect('database.db') as conn:
 
 ### Ingredient Parsing
 - Keep raw ingredient text
-- Parse: quantity, unit, ingredient name, preparation notes
-- Example: "2 cups chopped onions" → {qty: 2, unit: "cups", name: "onions", prep: "chopped"}
+- Parse: quantity, unit, ingredient name, modifiers
+- **Use LLM parser**: `from llm_parser import get_parser; parser.parse_ingredient(text)`
+- Example: "2 cups all-purpose flour, sifted" → 
+  - {quantity: 2, unit: "cups", name: "flour", modifiers: "all-purpose, sifted"}
+- LLM provides semantic understanding of ingredient equivalence
 
 ## Testing Considerations
 - Start with manual testing
@@ -180,16 +213,70 @@ with sqlite3.connect('database.db') as conn:
 
 ## Dependencies to Install
 ```
-flask
-recipe-scrapers
+flask==3.0.0
+recipe-scrapers==14.55.0
+gunicorn==21.2.0
+ollama-python>=0.1.0  # Optional, for LLM support
 sqlite3 (built-in)
 ```
 
+## LLM Configuration
+
+### Environment Variables (docker-compose.yml or .env)
+```bash
+# Backend: ollama, openai, anthropic, or regex (fallback)
+LLM_BACKEND=regex  # Default: use regex (LLM too slow without batching)
+
+# Model to use (for Ollama)
+LLM_MODEL=qwen2.5:1.5b  # 1.5B works better than 0.5B
+
+# Ollama host
+OLLAMA_HOST=http://localhost:11434  # Dev
+# or
+OLLAMA_HOST=http://host.docker.internal:11434  # Docker
+
+# Request timeout (seconds)
+LLM_TIMEOUT=10  # Increased from 5 for slower operations
+```
+
+### Setting Up Ollama (Development)
+```bash
+# Install Ollama (macOS - download from ollama.com)
+# or Linux:
+curl -fsSL https://ollama.com/install.sh | sh
+
+# Start service
+ollama serve
+
+# Pull model (1.5B is better than 0.5B)
+ollama pull qwen2.5:1.5b  # ~1GB
+
+# Install Python client
+pip install ollama  # NOT ollama-python
+```
+
+### LLM Parser Usage
+```python
+from llm_parser import get_parser
+
+# Auto-detects backend (Ollama → regex fallback)
+parser = get_parser()
+
+# Parse ingredient
+result = parser.parse_ingredient("2 cups all-purpose flour")
+# Returns: {quantity: 2, unit: "cups", name: "flour", modifiers: "all-purpose"}
+
+# Normalize for matching
+normalized = parser.normalize_ingredient_name("flour", "all-purpose")
+# Returns: "flour" (strips non-essential modifiers)
+```
+
 ## Future Considerations (Don't implement yet, but keep in mind)
-- Ingredient matching will need fuzzy logic ("tomato" vs "tomatoes")
-- Batch prep suggestions will need to analyze ingredient overlaps
-- Recipe ordering will need to consider shelf life and prep dependencies
-- May want to cache scraped recipes to avoid re-fetching
+- LLM can also analyze recipe instructions for v3 (prep task extraction)
+- Can upgrade to larger models if server gets more RAM
+- Could fine-tune a model specifically for recipe ingredients
+- May want to cache LLM responses to reduce latency
+- Consider async LLM calls for batch processing
 
 ## Development Workflow
 1. Start simple, iterate quickly

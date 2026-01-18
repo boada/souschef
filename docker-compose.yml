@@ -13,6 +13,11 @@ services:
     environment:
       - FLASK_ENV=production
       - DATABASE_PATH=/app/data/database.db
+      # LLM Configuration (currently using regex for speed)
+      - LLM_BACKEND=regex  # Options: ollama (slow but accurate), regex (fast)
+      - LLM_MODEL=qwen2.5:1.5b  # Model to use if LLM_BACKEND=ollama
+      - OLLAMA_HOST=http://host.docker.internal:11434  # Ollama on host machine
+      - LLM_TIMEOUT=10  # Timeout in seconds
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/"]
       interval: 30s

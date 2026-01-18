@@ -36,7 +36,8 @@
             
             <div class="recipe-actions">
                 <a href="/recipe/{{ recipe.id }}" class="btn btn-small">View</a>
-                <button onclick="deleteRecipe({{ recipe.id }}, '{{ recipe.title }}')" 
+                <button onclick="deleteRecipe({{ recipe.id }}, this.getAttribute('data-title'))" 
+                        data-title="{{ recipe.title }}"
                         class="btn btn-small btn-danger">Delete</button>
             </div>
         </div>
