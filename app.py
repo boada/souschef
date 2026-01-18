@@ -5,11 +5,51 @@ from flask import Flask, render_template, request, jsonify, redirect, url_for
 import models
 import recipe_parser
 import shopping_list
+import threading
+import os
 
 app = Flask(__name__)
 
 # Initialize database on app startup
 models.init_db()
+
+
+def process_recipe_async(recipe_id: int, raw_ingredients: list):
+    """
+    Background worker to parse ingredients with LLM
+    Updates recipe status when complete
+    """
+    try:
+        print(f"🔄 Starting async processing for recipe {recipe_id}")
+        
+        # Check if LLM is enabled
+        llm_backend = os.getenv('LLM_BACKEND', 'regex')
+        
+        if llm_backend == 'ollama':
+            # Use LLM parsing (slow but accurate)
+            from llm_parser import get_parser
+            parser = get_parser()
+            
+            parsed_ingredients = []
+            for raw_text in raw_ingredients:
+                parsed = parser.parse_ingredient(raw_text)
+                parsed_ingredients.append(parsed)
+        else:
+            # Use regex parsing (fast)
+            parsed_ingredients = [recipe_parser.parse_ingredient(ing) for ing in raw_ingredients]
+        
+        # Update ingredients in database
+        models.update_recipe_ingredients(recipe_id, parsed_ingredients)
+        
+        # Mark as ready for review
+        models.update_recipe_status(recipe_id, 'ready_for_review')
+        
+        print(f"✅ Recipe {recipe_id} ready for review")
+        
+    except Exception as e:
+        print(f"❌ Error processing recipe {recipe_id}: {e}")
+        # On error, still mark as ready so user can review/fix
+        models.update_recipe_status(recipe_id, 'ready_for_review')
 
 
 @app.route('/')
@@ -21,7 +61,7 @@ def index():
 
 @app.route('/add-recipe', methods=['GET', 'POST'])
 def add_recipe():
-    """Add a new recipe by URL - scrape and show preview"""
+    """Add a new recipe by URL - scrape and save immediately, process async"""
     if request.method == 'GET':
         return render_template('add_recipe.html')
     
@@ -36,39 +76,20 @@ def add_recipe():
         return jsonify({'error': 'Recipe already exists in your library'}), 400
     
     try:
-        # Parse recipe from URL
-        recipe_data = recipe_parser.parse_recipe_url(url)
-        recipe_data['url'] = url
+        # Quick scrape (just basic info, no LLM parsing yet)
+        from recipe_scrapers import scrape_me
+        scraper = scrape_me(url)
         
-        # Store in session for review (or return as JSON for client-side handling)
-        return jsonify({
-            'success': True,
-            'recipe': recipe_data
-        })
-    
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-
-@app.route('/review-recipe', methods=['POST'])
-def review_recipe():
-    """Save recipe after user review/edits"""
-    data = request.get_json()
-    
-    url = data.get('url', '').strip()
-    title = data.get('title', '').strip()
-    servings = data.get('servings')
-    total_time = data.get('total_time')
-    image_url = data.get('image_url')
-    source_website = data.get('source_website', '').strip()
-    ingredients = data.get('ingredients', [])
-    instructions = data.get('instructions', [])
-    
-    if not url or not title:
-        return jsonify({'error': 'URL and title are required'}), 400
-    
-    try:
-        # Save to database
+        title = scraper.title()
+        servings = recipe_parser._parse_yields(scraper.yields())
+        total_time = scraper.total_time() or 0
+        image_url = scraper.image() or None
+        source_website = scraper.host()
+        raw_ingredients = scraper.ingredients()
+        instructions_raw = scraper.instructions()
+        instructions = recipe_parser._split_instructions(instructions_raw)
+        
+        # Save immediately with status='processing' and empty ingredients
         recipe_id = models.add_recipe(
             url=url,
             title=title,
@@ -76,14 +97,59 @@ def review_recipe():
             total_time=total_time,
             image_url=image_url,
             source_website=source_website,
-            ingredients=ingredients,
-            instructions=instructions
+            ingredients=[],  # Empty for now
+            instructions=instructions,
+            status='processing'
         )
+        
+        # Start background thread to parse ingredients
+        thread = threading.Thread(
+            target=process_recipe_async,
+            args=(recipe_id, raw_ingredients),
+            daemon=True
+        )
+        thread.start()
+        
+        # Return immediately
+        return jsonify({
+            'success': True,
+            'message': 'Recipe added! Processing ingredients...',
+            'recipe_id': recipe_id
+        })
+    
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/review-recipe/<int:recipe_id>', methods=['GET', 'POST'])
+def review_recipe(recipe_id):
+    """Review and finalize a recipe"""
+    import json
+    recipe = models.get_recipe_by_id(recipe_id)
+    
+    if not recipe:
+        return "Recipe not found", 404
+    
+    if request.method == 'GET':
+        # Show review page with JSON-serialized ingredients
+        recipe['ingredients_json'] = json.dumps(recipe['ingredients'])
+        return render_template('review_recipe.html', recipe=recipe)
+    
+    # POST - Save edits and mark as saved
+    data = request.get_json()
+    
+    ingredients = data.get('ingredients', [])
+    
+    try:
+        # Update ingredients
+        models.update_recipe_ingredients(recipe_id, ingredients)
+        
+        # Mark as saved
+        models.update_recipe_status(recipe_id, 'saved')
         
         return jsonify({
             'success': True,
-            'recipe_id': recipe_id,
-            'title': title
+            'recipe_id': recipe_id
         })
     
     except Exception as e:

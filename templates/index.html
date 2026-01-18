@@ -34,8 +34,26 @@
                 <small>from {{ recipe.source_website }}</small>
             </div>
             
+            <!-- Status badge -->
+            {% if recipe.status == 'processing' %}
+            <div class="status-badge status-processing">
+                <span class="spinner">⏳</span> Processing ingredients...
+            </div>
+            {% elif recipe.status == 'ready_for_review' %}
+            <div class="status-badge status-ready">
+                ✅ Ready for review
+            </div>
+            {% endif %}
+            
             <div class="recipe-actions">
-                <a href="/recipe/{{ recipe.id }}" class="btn btn-small">View</a>
+                {% if recipe.status == 'processing' %}
+                    <button class="btn btn-small" disabled>Processing...</button>
+                {% elif recipe.status == 'ready_for_review' %}
+                    <a href="/review-recipe/{{ recipe.id }}" class="btn btn-small btn-primary">Review</a>
+                {% else %}
+                    <a href="/recipe/{{ recipe.id }}" class="btn btn-small">View</a>
+                {% endif %}
+                
                 <button onclick="deleteRecipe({{ recipe.id }}, this.getAttribute('data-title'))" 
                         data-title="{{ recipe.title }}"
                         class="btn btn-small btn-danger">Delete</button>
@@ -55,6 +73,20 @@
 
 {% block scripts %}
 <script>
+// Auto-refresh page if any recipes are processing
+{% set has_processing = namespace(value=false) %}
+{% for recipe in recipes %}
+  {% if recipe.status == 'processing' %}
+    {% set has_processing.value = true %}
+  {% endif %}
+{% endfor %}
+
+{% if has_processing.value %}
+setTimeout(() => {
+    location.reload();
+}, 3000); // Refresh every 3 seconds
+{% endif %}
+
 function deleteRecipe(recipeId, title) {
     if (!confirm(`Delete "${title}"?`)) {
         return;

@@ -1,0 +1,141 @@
+{% extends "base.html" %}
+
+{% block title %}Review Recipe - souschef.ai{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h2>Review & Finalize Recipe</h2>
+</div>
+
+<div class="review-container">
+    <div class="review-header">
+        <div>
+            <h3>{{ recipe.title }}</h3>
+            <p>from {{ recipe.source_website }}</p>
+        </div>
+    </div>
+
+    <p class="review-instructions">
+        Ingredients have been parsed automatically. Review them below and make any corrections before saving.
+    </p>
+
+    <div class="review-section">
+        <h4>Ingredients</h4>
+        <div class="ingredients-review" id="ingredients-container">
+            {% for ing in recipe.ingredients %}
+            <div class="ingredient-row">
+                <div class="ingredient-fields">
+                    <div class="field-group">
+                        <label>Quantity</label>
+                        <input type="number" step="0.01" 
+                               value="{{ ing.quantity or '' }}" 
+                               data-idx="{{ loop.index0 }}" 
+                               data-field="quantity" 
+                               class="edit-field">
+                    </div>
+                    <div class="field-group">
+                        <label>Unit</label>
+                        <input type="text" 
+                               value="{{ ing.unit or '' }}" 
+                               data-idx="{{ loop.index0 }}" 
+                               data-field="unit" 
+                               class="edit-field">
+                    </div>
+                    <div class="field-group field-name">
+                        <label>Ingredient Name</label>
+                        <input type="text" 
+                               value="{{ ing.name or '' }}" 
+                               data-idx="{{ loop.index0 }}" 
+                               data-field="name" 
+                               class="edit-field">
+                    </div>
+                    <div class="field-group">
+                        <label>Modifiers/Prep</label>
+                        <input type="text" 
+                               value="{{ ing.modifiers or ing.preparation or '' }}" 
+                               data-idx="{{ loop.index0 }}" 
+                               data-field="modifiers" 
+                               class="edit-field">
+                    </div>
+                </div>
+                <div class="original-text-small">
+                    Original: {{ ing.raw_text }}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <div class="review-actions">
+        <button onclick="saveRecipe()" class="btn btn-primary" id="save-btn">
+            ✓ Looks Good - Save Recipe
+        </button>
+        <a href="/" class="btn">Cancel</a>
+    </div>
+
+    <div id="save-message" class="message" style="display: none;"></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const recipeData = {
+    ingredients: {{ recipe.ingredients_json | safe }}
+};
+
+// Update recipe data when fields change
+document.querySelectorAll('.edit-field').forEach(input => {
+    input.addEventListener('change', (e) => {
+        const idx = parseInt(e.target.dataset.idx);
+        const field = e.target.dataset.field;
+        let value = e.target.value;
+        
+        if (field === 'quantity' && value) {
+            value = parseFloat(value);
+        }
+        
+        recipeData.ingredients[idx][field] = value;
+    });
+});
+
+function saveRecipe() {
+    const saveBtn = document.getElementById('save-btn');
+    const messageDiv = document.getElementById('save-message');
+    
+    saveBtn.disabled = true;
+    saveBtn.textContent = 'Saving...';
+    messageDiv.style.display = 'none';
+    
+    fetch('/review-recipe/{{ recipe.id }}', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(recipeData)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            messageDiv.className = 'message success';
+            messageDiv.textContent = '✓ Recipe saved successfully!';
+            messageDiv.style.display = 'block';
+            
+            // Redirect to home after 1 second
+            setTimeout(() => {
+                window.location.href = '/';
+            }, 1000);
+        } else {
+            throw new Error(data.error || 'Unknown error');
+        }
+    })
+    .catch(error => {
+        messageDiv.className = 'message error';
+        messageDiv.textContent = '✗ ' + error.message;
+        messageDiv.style.display = 'block';
+        
+        saveBtn.disabled = false;
+        saveBtn.textContent = '✓ Looks Good - Save Recipe';
+    });
+}
+</script>
+{% endblock %}
