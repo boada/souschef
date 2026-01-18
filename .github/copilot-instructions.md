@@ -6,33 +6,33 @@ souschef.ai is an AI-powered, local-first meal planning platform that generates 
 **Current Phase**: v2.0 IN PROGRESS - LLM-based ingredient parsing
 
 ## Latest Session Notes (Jan 17, 2026)
-**Major Architecture Change: LLM Integration (with lessons learned)**
-- Created `llm_parser.py` abstraction layer ✓
-- Supports Ollama (local), OpenAI, Anthropic, or regex fallback ✓
-- Tested with Qwen2.5 1.5B (~1GB RAM, better than 0.5B) ✓
-- Auto-detects available backends and falls back gracefully ✓
-- **LLM works but too slow for production** - 3-4 minutes per recipe ⚠️
-- **Currently using regex backend** for speed (instant vs minutes) ✓
+**v2 COMPLETE - Async Processing Architecture** ✅
+- Implemented full async workflow: processing → ready_for_review → saved ✓
+- Recipes save instantly, parse in background with threading ✓
+- Created review/edit page for ingredient corrections ✓
+- Status badges with auto-refresh (3-second polling) ✓
+- Background processing eliminates 3-4 min wait times ✓
+- LLM infrastructure built (`llm_parser.py`) but defaults to regex ✓
+- Tested extensively: added multiple recipes, all processed correctly ✓
 
-**Performance Issue Identified:**
-- Sequential LLM calls: 15 ingredients × 15 seconds = 3.5 minutes
-- Need batch processing: parse all ingredients in one LLM call
-- OR keep using regex (fast, good enough for v2)
-- LLM infrastructure ready for future optimization
+**Architecture Decisions:**
+- **Regex backend for speed** - instant parsing vs 3-4 minutes with LLM
+- LLM works but needs batch processing (future optimization)
+- Auto-refresh is "hacky" but functional (consider polling endpoint in v3)
+- Parsing quality is good enough for v2 (user can review/edit before saving)
 
 **What's Working:**
 - Recipe scraping with `recipe-scrapers` library ✓
-- SQLite database with recipes, ingredients, instructions ✓
+- Async background processing with Python threading ✓
+- SQLite database with status column ✓
 - Shopping list generation with quantity aggregation ✓
 - Regex-based ingredient parsing (quantity, unit, name, modifiers) ✓
 - Ingredient normalization with smart modifier handling ✓
 - Unit conversions (cups ↔ ounces for flour, sugar, butter) ✓
 - Always rounds up quantities (never run short) ✓
-- Debug output (DEBUG flag in shopping_list.py) ✓
-- Recipe review/edit page after scraping ✓
+- Review page with editable ingredient fields ✓
 - Production deployment with Docker + Gunicorn ✓
 - Running on home server (3.7GB RAM Debian) ✓
-- **Fixed delete button bug** (quote escaping issue) ✓
 
 **Important Design Decisions:**
 - Flour types (bread, cake, all-purpose) now stay SEPARATE (not combined)
@@ -116,33 +116,33 @@ souschef/
 
 ## v1 Scope (Current Focus)
 
-### COMPLETED ✅
+### v1 COMPLETED ✅ (Deployed to production)
 - Add recipe by URL (scrape and save)
 - View all recipes in library
 - Recipe deletion
 - Select multiple recipes
 - Generate consolidated shopping list
 - Combine ingredient quantities (with unit conversion)
-- Recipe review/edit page (NEW - needs user testing)
-- Debug logging for shopping list generation
 - Simple, clean UI
-- **Docker deployment to home server**
-- **Production-ready with Gunicorn**
+- Docker deployment to home server
+- Production-ready with Gunicorn
 
-### v2 IN PROGRESS 🔄
-- **LLM infrastructure built** (architecture complete, but too slow) ✓
-- **Currently using regex** for speed (instant vs 3-4 minutes) ✓
-- Flexible backend system (Ollama/OpenAI/Anthropic/regex) ✓
-- Need to implement batch LLM processing for performance ⚠️
+### v2 COMPLETED ✅ (Ready for real-world use)
+- **Async recipe processing** - instant save, background parsing ✓
+- **Status workflow** - processing → ready_for_review → saved ✓
+- **Review/edit page** - user can fix parsing errors before saving ✓
+- **Status badges** - visual feedback with auto-refresh ✓
+- **LLM infrastructure** - built and tested, ready for optimization ✓
+- **Flexible parsing** - Ollama/OpenAI/Anthropic/regex backends ✓
+- **Currently using regex** - instant parsing, good enough quality ✓
 - Ingredient normalization preserves important modifiers (flour types) ✓
 
-### KNOWN ISSUES ⚠️
-- LLM without batching: 3-4 minutes per recipe (unacceptable)
-- Sequential API calls are the bottleneck (15 calls × 15 sec each)
-- Need batch processing: parse all ingredients in one LLM call
-- Home server RAM is tight (using qwen2.5:1.5b - 1GB model)
-- `recipe-scrapers` doesn't support all recipe sites (expected limitation)
-- Delete button had quote escaping bug (FIXED) ✓
+### KNOWN LIMITATIONS
+- Auto-refresh uses full page reload (works but inelegant)
+- LLM needs batch processing for production speed (future)
+- Home server RAM is tight (3.7GB total, using 1.5B model)
+- `recipe-scrapers` doesn't support all recipe sites (expected)
+- Parsing quality depends on regex patterns (edge cases need review)
 
 ### OUT OF SCOPE (Future versions)
 - Batch prep suggestions (v3)
