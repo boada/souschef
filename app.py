@@ -21,34 +21,25 @@ def process_recipe_async(recipe_id: int, raw_ingredients: list):
     """
     try:
         print(f"🔄 Starting async processing for recipe {recipe_id}")
-        
-        # Check if LLM is enabled
         llm_backend = os.getenv('LLM_BACKEND', 'regex')
-        
+        print(f"[DEBUG] LLM_BACKEND env in process_recipe_async: {llm_backend}")
         if llm_backend == 'ollama':
-            # Use LLM parsing (slow but accurate)
             from llm_parser import get_parser
             parser = get_parser()
-            
+            print(f"[DEBUG] Using LLMParser backend: {parser.backend}")
             parsed_ingredients = []
             for raw_text in raw_ingredients:
+                print(f"[DEBUG] Parsing ingredient with LLM: {raw_text}")
                 parsed = parser.parse_ingredient(raw_text)
                 parsed_ingredients.append(parsed)
         else:
-            # Use regex parsing (fast)
+            print("[DEBUG] Using regex parser for ingredients.")
             parsed_ingredients = [recipe_parser.parse_ingredient(ing) for ing in raw_ingredients]
-        
-        # Update ingredients in database
         models.update_recipe_ingredients(recipe_id, parsed_ingredients)
-        
-        # Mark as ready for review
         models.update_recipe_status(recipe_id, 'ready_for_review')
-        
         print(f"✅ Recipe {recipe_id} ready for review")
-        
     except Exception as e:
         print(f"❌ Error processing recipe {recipe_id}: {e}")
-        # On error, still mark as ready so user can review/fix
         models.update_recipe_status(recipe_id, 'ready_for_review')
 
 

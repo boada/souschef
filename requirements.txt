@@ -3,4 +3,4 @@ recipe-scrapers==14.55.0
 gunicorn==21.2.0
 
 # LLM support (optional - will fallback to regex if not installed)
-ollama-python>=0.1.0
+ollama>=0.1.0
