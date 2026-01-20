@@ -12,10 +12,16 @@ services:
     environment:
       FLASK_ENV: production
       DATABASE_PATH: /app/data/database.db
-      LLM_BACKEND: ollama
+      # LLM Backend: regex (instant), openai (fast, ~$0.001/recipe), ollama (local but slow on 4GB)
+      LLM_BACKEND: regex
+      # OpenAI config (for v3 batch prep features)
+      # OPENAI_API_KEY: sk-proj-...  # Uncomment and add your key
+      # OPENAI_MODEL: gpt-4o-mini  # Cheap ($0.15/1M tokens)
+      # Ollama config (local LLM)
       LLM_MODEL: qwen2.5:1.5b
+      LLM_MAX_TOKENS: 2048
       OLLAMA_HOST: http://ollama:11434
-      LLM_TIMEOUT: 10
+      LLM_TIMEOUT: 45
     depends_on:
       - ollama
     healthcheck:

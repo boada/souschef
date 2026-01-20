@@ -27,11 +27,9 @@ def process_recipe_async(recipe_id: int, raw_ingredients: list):
             from llm_parser import get_parser
             parser = get_parser()
             print(f"[DEBUG] Using LLMParser backend: {parser.backend}")
-            parsed_ingredients = []
-            for raw_text in raw_ingredients:
-                print(f"[DEBUG] Parsing ingredient with LLM: {raw_text}")
-                parsed = parser.parse_ingredient(raw_text)
-                parsed_ingredients.append(parsed)
+            print(f"[DEBUG] Parsing {len(raw_ingredients)} ingredients in BATCH")
+            parsed_ingredients = parser.parse_ingredients_batch(raw_ingredients)
+            print(f"[DEBUG] Batch parsing complete")
         else:
             print("[DEBUG] Using regex parser for ingredients.")
             parsed_ingredients = [recipe_parser.parse_ingredient(ing) for ing in raw_ingredients]

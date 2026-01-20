@@ -33,16 +33,29 @@ class LLMParser:
         # Check environment variable override
         backend_env = os.getenv('LLM_BACKEND', '').lower()
         if backend_env == 'openai':
-            return LLMBackend.OPENAI
+            if os.getenv('OPENAI_API_KEY'):
+                return LLMBackend.OPENAI
+            else:
+                print("Warning: LLM_BACKEND=openai but no OPENAI_API_KEY found")
         elif backend_env == 'anthropic':
             return LLMBackend.ANTHROPIC
         elif backend_env == 'regex':
             return LLMBackend.REGEX
+        elif backend_env == 'ollama':
+            # Try Ollama if explicitly requested
+            try:
+                import ollama
+                ollama.list()
+                return LLMBackend.OLLAMA
+            except:
+                print("Warning: LLM_BACKEND=ollama but Ollama not available")
         
-        # Try to detect Ollama
+        # Auto-detect: OpenAI > Ollama > Regex
+        if os.getenv('OPENAI_API_KEY'):
+            return LLMBackend.OPENAI
+        
         try:
             import ollama
-            # Test if Ollama is running
             ollama.list()
             return LLMBackend.OLLAMA
         except:
@@ -84,24 +97,103 @@ class LLMParser:
                 'modifiers': parsed.get('preparation')
             }
     
-    def _parse_with_ollama(self, raw_text: str) -> Dict:
-        """Parse using Ollama"""
+    def parse_ingredients_batch(self, raw_texts: List[str]) -> List[Dict]:
+        """
+        Parse multiple ingredients in a single LLM call (MUCH faster)
+        
+        Args:
+            raw_texts: List of ingredient strings to parse
+        
+        Returns:
+            List of parsed ingredient dicts
+        """
+        if not raw_texts:
+            return []
+        
+        # Use batch processing for LLM backends
+        if self.backend == LLMBackend.OLLAMA:
+            return self._parse_batch_with_ollama(raw_texts)
+        elif self.backend == LLMBackend.OPENAI:
+            return self._parse_batch_with_openai(raw_texts)
+        elif self.backend == LLMBackend.ANTHROPIC:
+            return self._parse_batch_with_anthropic(raw_texts)
+        else:
+            # Regex fallback - no benefit from batching but keep interface consistent
+            return [self.parse_ingredient(text) for text in raw_texts]
+    
+    def _parse_batch_with_ollama(self, raw_texts: List[str]) -> List[Dict]:
+        """Parse multiple ingredients in one Ollama call (MUCH faster)"""
         try:
             import ollama
             
-            prompt = f"""Parse this ingredient into JSON with these exact fields:
-- quantity (number or null if not specified)
-- unit (string or null, e.g., "cup", "tablespoon", "ounce")
-- name (the core ingredient name only, e.g., "flour", "onion", "butter")
-- modifiers (string or null, any descriptors like "chopped", "unsalted", "all-purpose")
+            # Build compact list
+            ingredients_list = "\n".join([f"{i+1}. {text}" for i, text in enumerate(raw_texts)])
+            
+            # Ultra-concise prompt for speed
+            prompt = f"""Parse to JSON array (quantity=num|null, unit=str|null, name=str, modifiers=str|null):
 
-Ingredient: "{raw_text}"
+{ingredients_list}
 
-Return ONLY valid JSON, no other text."""
+Output ONLY: [{{"quantity":...,"unit":...,"name":...,"modifiers":...}},...]"""
 
             response = ollama.generate(
                 model=self.model,
                 prompt=prompt,
+                format='json',
+                options={
+                    'temperature': 0,
+                    'num_predict': 200 + (len(raw_texts) * 50),  # ~50 tokens per ingredient
+                    'top_k': 10,  # Reduce choices for speed
+                    'top_p': 0.5,  # More focused sampling
+                    'repeat_penalty': 1.0
+                }
+            )
+            
+            parsed_list = json.loads(response['response'])
+            
+            # Ensure we got a list and it matches input length
+            if not isinstance(parsed_list, list):
+                raise ValueError("LLM didn't return an array")
+            
+            # Add raw_text to each result
+            results = []
+            for i, parsed in enumerate(parsed_list):
+                if i < len(raw_texts):
+                    results.append({
+                        'raw_text': raw_texts[i],
+                        'quantity': parsed.get('quantity'),
+                        'unit': parsed.get('unit'),
+                        'name': parsed.get('name', raw_texts[i]),
+                        'modifiers': parsed.get('modifiers')
+                    })
+            
+            # If LLM returned fewer items than expected, fall back for missing ones
+            if len(results) < len(raw_texts):
+                print(f"Warning: LLM returned {len(results)} items, expected {len(raw_texts)}")
+                for i in range(len(results), len(raw_texts)):
+                    results.append(self._fallback_to_regex(raw_texts[i]))
+            
+            return results
+            
+        except Exception as e:
+            print(f"Ollama batch parsing failed: {e}, falling back to regex for all")
+            return [self._fallback_to_regex(text) for text in raw_texts]
+    
+    def _parse_with_ollama(self, raw_text: str) -> Dict:
+        """Parse using Ollama (single ingredient - use batch method when possible)"""
+        try:
+            import ollama
+            
+            system_message = "You are a recipe ingredient parser. Return valid JSON only."
+            
+            prompt = f"""Parse: "{raw_text}"
+
+Return: {{"quantity": number|null, "unit": string|null, "name": string, "modifiers": string|null}}"""
+
+            response = ollama.generate(
+                model=self.model,
+                prompt=prompt,
+                system=system_message,
                 format='json',
                 options={'temperature': 0}  # Deterministic
             )
@@ -121,10 +213,110 @@ Return ONLY valid JSON, no other text."""
             print(f"Ollama parsing failed: {e}, falling back to regex")
             return self._fallback_to_regex(raw_text)
     
+    def _parse_batch_with_openai(self, raw_texts: List[str]) -> List[Dict]:
+        """Parse batch using OpenAI API (fast, ~$0.001 per recipe)"""
+        try:
+            import openai
+            
+            api_key = os.getenv('OPENAI_API_KEY')
+            if not api_key:
+                print("OpenAI API key not found, falling back to regex")
+                return [self._fallback_to_regex(text) for text in raw_texts]
+            
+            client = openai.OpenAI(api_key=api_key)
+            
+            ingredients_list = "\n".join([f"{i+1}. {text}" for i, text in enumerate(raw_texts)])
+            
+            response = client.chat.completions.create(
+                model=os.getenv('OPENAI_MODEL', 'gpt-4o-mini'),  # Cheap and fast
+                messages=[
+                    {"role": "system", "content": "You are a recipe ingredient parser. Return valid JSON only."},
+                    {"role": "user", "content": f"""Parse these {len(raw_texts)} ingredients into JSON array:
+
+{ingredients_list}
+
+Return array: [{{"quantity": number|null, "unit": string|null, "name": string, "modifiers": string|null}}, ...]
+
+For ranges like "6 to 8", use first number.
+For alternatives like "thyme or rosemary", list all in modifiers.
+Extract core ingredient name only."""}
+                ],
+                response_format={"type": "json_object"},
+                temperature=0,
+                max_tokens=500 + (len(raw_texts) * 50)
+            )
+            
+            result = json.loads(response.choices[0].message.content)
+            
+            # Handle different response formats
+            parsed_list = result if isinstance(result, list) else result.get('ingredients', [])
+            
+            if not isinstance(parsed_list, list):
+                raise ValueError("OpenAI didn't return an array")
+            
+            # Add raw_text to each result
+            results = []
+            for i, parsed in enumerate(parsed_list):
+                if i < len(raw_texts):
+                    results.append({
+                        'raw_text': raw_texts[i],
+                        'quantity': parsed.get('quantity'),
+                        'unit': parsed.get('unit'),
+                        'name': parsed.get('name', raw_texts[i]),
+                        'modifiers': parsed.get('modifiers')
+                    })
+            
+            # Fill in missing items with regex fallback
+            if len(results) < len(raw_texts):
+                for i in range(len(results), len(raw_texts)):
+                    results.append(self._fallback_to_regex(raw_texts[i]))
+            
+            return results
+            
+        except Exception as e:
+            print(f"OpenAI batch parsing failed: {e}, falling back to regex")
+            return [self._fallback_to_regex(text) for text in raw_texts]
+    
+    def _parse_batch_with_anthropic(self, raw_texts: List[str]) -> List[Dict]:
+        """Parse batch using Anthropic API"""
+        # TODO: Implement when needed
+        return [self._fallback_to_regex(text) for text in raw_texts]
+    
     def _parse_with_openai(self, raw_text: str) -> Dict:
         """Parse using OpenAI API"""
-        # TODO: Implement when needed
-        return self._fallback_to_regex(raw_text)
+        try:
+            import openai
+            
+            api_key = os.getenv('OPENAI_API_KEY')
+            if not api_key:
+                return self._fallback_to_regex(raw_text)
+            
+            client = openai.OpenAI(api_key=api_key)
+            
+            response = client.chat.completions.create(
+                model=os.getenv('OPENAI_MODEL', 'gpt-4o-mini'),
+                messages=[
+                    {"role": "system", "content": "You are a recipe ingredient parser. Return valid JSON only."},
+                    {"role": "user", "content": f'Parse: "{raw_text}"\n\nReturn: {{"quantity": number|null, "unit": string|null, "name": string, "modifiers": string|null}}'}
+                ],
+                response_format={"type": "json_object"},
+                temperature=0,
+                max_tokens=100
+            )
+            
+            parsed = json.loads(response.choices[0].message.content)
+            
+            return {
+                'raw_text': raw_text,
+                'quantity': parsed.get('quantity'),
+                'unit': parsed.get('unit'),
+                'name': parsed.get('name', raw_text),
+                'modifiers': parsed.get('modifiers')
+            }
+            
+        except Exception as e:
+            print(f"OpenAI parsing failed: {e}, falling back to regex")
+            return self._fallback_to_regex(raw_text)
     
     def _parse_with_anthropic(self, raw_text: str) -> Dict:
         """Parse using Anthropic API"""

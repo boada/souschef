@@ -31,9 +31,9 @@ def parse_recipe_url(url: str) -> Dict:
         # Get ingredients (raw text for now, will parse in shopping list)
         raw_ingredients = scraper.ingredients()
         
-        # Parse ingredients with LLM (or fallback to regex)
+        # Parse ingredients with LLM using BATCH processing (much faster)
         parser = get_parser()
-        ingredients = [parser.parse_ingredient(ing) for ing in raw_ingredients]
+        ingredients = parser.parse_ingredients_batch(raw_ingredients)
         
         # Get instructions
         instructions_raw = scraper.instructions()
@@ -55,63 +55,100 @@ def parse_recipe_url(url: str) -> Dict:
 
 def parse_ingredient(raw_text: str) -> Dict:
     """
-    LEGACY: Parse an ingredient string into structured data using regex
+    Enhanced regex-based ingredient parser
     
-    This function is kept for backward compatibility and as a fallback.
-    New code should use llm_parser.get_parser().parse_ingredient() instead.
-    
-    Example: "2 cups chopped onions" -> 
-             {quantity: 2, unit: "cups", name: "onions", preparation: "chopped"}
+    Handles:
+    - Fractions and ranges (1/3 cup, 6 to 8 thighs)
+    - Parenthetical notes (about 2 cloves)
+    - Complex modifiers (skin-on, bone-in)
     """
     raw_text = raw_text.strip()
+    original = raw_text
     
-    # Pattern: optional quantity, optional unit, name, optional preparation
-    # This is basic - will improve in v2
-    pattern = r'^([\d./\s¼½¾⅓⅔⅛⅜⅝⅞]+)?\s*([a-zA-Z]+)?\s+(.+)$'
+    # Extract and remove parenthetical notes
+    modifiers_list = []
+    paren_pattern = r'\([^)]+\)'
+    parentheticals = re.findall(paren_pattern, raw_text)
+    for paren in parentheticals:
+        modifiers_list.append(paren.strip('()'))
+        raw_text = raw_text.replace(paren, '').strip()
+    
+    # Pattern for: [quantity] [unit] [ingredient with modifiers]
+    # Handles: "1/3 cup olive oil", "6 to 8 chicken thighs", "1 tablespoon minced garlic"
+    pattern = r'^([\d./\s¼½¾⅓⅔⅛⅜⅝⅞]+(?:\s*(?:to|-)\s*[\d./\s¼½¾⅓⅔⅛⅜⅝⅞]+)?)\s+([a-zA-Z]+)?\s+(.+)$'
     
     match = re.match(pattern, raw_text)
     
     if match:
         quantity_str = match.group(1)
         unit = match.group(2)
-        rest = match.group(3)
+        ingredient_text = match.group(3).strip()
         
-        # Try to extract preparation words (chopped, diced, minced, etc.)
-        prep_words = ['chopped', 'diced', 'minced', 'sliced', 'grated', 
-                      'crushed', 'peeled', 'julienned', 'cubed']
-        
-        preparation = None
-        name = rest
-        
-        for prep in prep_words:
-            if prep in rest.lower():
-                preparation = prep
-                name = rest.replace(prep, '').strip()
-                break
-        
+        # Parse quantity (handle ranges)
         quantity = _parse_quantity(quantity_str) if quantity_str else None
         
+        # Extract preparation/modifier words from ingredient text
+        prep_words = [
+            'chopped', 'diced', 'minced', 'sliced', 'grated', 'crushed', 
+            'peeled', 'julienned', 'cubed', 'shredded', 'ground',
+            'skin-on', 'bone-in', 'boneless', 'skinless', 'halved', 'quartered',
+            'fresh', 'dried', 'frozen', 'canned', 'cooked', 'raw',
+            'large', 'small', 'medium', 'whole', 'patted dry'
+        ]
+        
+        found_modifiers = []
+        name = ingredient_text
+        
+        # Check each prep word
+        for prep in prep_words:
+            if prep in ingredient_text.lower():
+                found_modifiers.append(prep)
+        
+        # Extract core ingredient name (first 1-3 words that aren't modifiers)
+        words = ingredient_text.split()
+        core_words = []
+        for word in words:
+            word_lower = word.lower().strip(',')
+            if word_lower not in prep_words and not any(m in word_lower for m in prep_words):
+                core_words.append(word)
+            if len(core_words) >= 2:  # Get 2-3 word ingredient names
+                break
+        
+        name = ' '.join(core_words) if core_words else ingredient_text
+        
+        # Combine all modifiers
+        all_modifiers = found_modifiers + modifiers_list
+        modifiers = ', '.join(all_modifiers) if all_modifiers else None
+        
         return {
-            'raw_text': raw_text,
+            'raw_text': original,
             'quantity': quantity,
             'unit': unit.lower() if unit else None,
             'name': name.strip(),
-            'preparation': preparation
+            'modifiers': modifiers
         }
     
-    # If pattern doesn't match, just store the raw text
+    # Fallback: no quantity/unit pattern matched
     return {
-        'raw_text': raw_text,
+        'raw_text': original,
         'quantity': None,
         'unit': None,
         'name': raw_text,
-        'preparation': None
+        'modifiers': ', '.join(modifiers_list) if modifiers_list else None
     }
 
 
 def _parse_quantity(quantity_str: str) -> Optional[float]:
-    """Convert quantity string to float (handles fractions)"""
+    """Convert quantity string to float (handles fractions and ranges)"""
     quantity_str = quantity_str.strip()
+    
+    # Handle ranges (e.g., "6 to 8", "2-3") -> use first number
+    if ' to ' in quantity_str:
+        quantity_str = quantity_str.split(' to ')[0].strip()
+    elif '-' in quantity_str and not quantity_str.startswith('-'):
+        parts = quantity_str.split('-')
+        if len(parts) == 2 and parts[0].strip() and parts[1].strip():
+            quantity_str = parts[0].strip()
     
     # Handle unicode fractions
     fraction_map = {
@@ -124,11 +161,7 @@ def _parse_quantity(quantity_str: str) -> Optional[float]:
         if frac in quantity_str:
             quantity_str = quantity_str.replace(frac, str(value))
     
-    # Handle ranges (e.g., "2-3" -> use first number)
-    if '-' in quantity_str:
-        quantity_str = quantity_str.split('-')[0]
-    
-    # Handle fractions like "1/2"
+    # Handle fractions like "1/2" or "1 1/2"
     if '/' in quantity_str:
         parts = quantity_str.split()
         total = 0
@@ -137,8 +170,11 @@ def _parse_quantity(quantity_str: str) -> Optional[float]:
                 nums = part.split('/')
                 total += float(nums[0]) / float(nums[1])
             else:
-                total += float(part)
-        return total
+                try:
+                    total += float(part)
+                except ValueError:
+                    pass
+        return total if total > 0 else None
     
     try:
         return float(quantity_str)

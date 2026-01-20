@@ -5,19 +5,40 @@ souschef.ai is an AI-powered, local-first meal planning platform that generates 
 
 **Current Phase**: v2.0 IN PROGRESS - LLM-based ingredient parsing
 
-## Latest Session Notes (Jan 17, 2026)
+**Latest Session Notes (Jan 19, 2026)**
+**LLM Reality Check: Local models too slow for 4GB hardware** ⚠️
+- Implemented batch processing (1 call per recipe vs 1 per ingredient) ✓
+- Tested qwen2.5:0.5b, 1.5b, and llama3.2 ✓
+- All took 5+ minutes per recipe on 4GB home server ✗
+- **Decision: Use regex for v2, OpenAI API for v3** ✓
+
+**Current Setup (v2):**
+- Regex parser with enhanced logic for complex ingredients ✓
+- Handles ranges, parentheticals, modifiers ✓
+- Instant parsing (~100ms) ✓
+- Good enough for 80-90% of ingredients ✓
+- User reviews/edits before saving ✓
+
+**v3 Plan (Batch Prep Intelligence):**
+- Need LLM for instruction analysis ("chop onions for recipes 1-3")
+- OpenAI API: gpt-4o-mini ($0.15/1M tokens = ~$0.001/recipe)
+- Fast (~2 seconds per recipe)
+- High quality (GPT-4 level)
+- Already implemented, just needs API key
+
 **v2 COMPLETE - Async Processing Architecture** ✅
 - Implemented full async workflow: processing → ready_for_review → saved ✓
 - Recipes save instantly, parse in background with threading ✓
 - Created review/edit page for ingredient corrections ✓
 - Status badges with auto-refresh (3-second polling) ✓
 - Background processing eliminates 3-4 min wait times ✓
-- LLM infrastructure built (`llm_parser.py`) but defaults to regex ✓
+- Regex parser is instant and "good enough" ✓
 - Tested extensively: added multiple recipes, all processed correctly ✓
 
 **Architecture Decisions:**
-- **Regex backend for speed** - instant parsing vs 3-4 minutes with LLM
-- LLM works but needs batch processing (future optimization)
+- **Regex for v2** - instant parsing, handles 80-90% of ingredients
+- **OpenAI for v3** - needed for instruction analysis and batch prep intelligence
+- **Local LLMs too slow** - 5+ minutes per recipe on 4GB hardware
 - Auto-refresh is "hacky" but functional (consider polling endpoint in v3)
 - Parsing quality is good enough for v2 (user can review/edit before saving)
 
